@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ProofLayer — Digital Integrity Analysis</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root {
+  --bg: #0b1020;
+  --panel: #111827;
+  --border: #1f2937;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --accent: #38bdf8;
+  --ok: #22c55e;
+  --warn: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.upload-box {
+  border: 2px dashed #334155;
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  transition: border-color 0.2s ease;
+}
+
+.upload-box.selected {
+  border-color: var(--accent);
+}
+
+.upload-box input {
+  display: none;
+}
+
+.upload-box label {
+  display: block;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.file-info {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+button {
+  width: 100%;
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #020617;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.kv span:last-child {
+  text-align: right;
+  word-break: break-all;
+}
+
+.score {
+  font-size: 44px;
+  font-weight: 700;
+  margin: 12px 0;
+}
+
+.score.ok { color: var(--ok); }
+.score.warn { color: var(--warn); }
+
+.label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.check {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 6px 0;
+  border-bottom: 1px solid #1f2937;
+}
+
+.check:last-child {
+  border-bottom: none;
+}
+
+img {
+  max-width: 100%;
+  border-radius: 10px;
+  margin-top: 12px;
+}
+
+.hidden {
+  display: none;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>ProofLayer</h1>
+  <p>Deterministic analysis of digital file integrity</p>
+</header>
+
+<main>
+
+  <section class="card">
+    <h2>File Upload</h2>
+
+    <div id="uploadBox" class="upload-box">
+      <label>
+        Select a file to analyze
+        <input type="file" id="fileInput">
+      </label>
+      <div id="fileInfo" class="file-info">No file selected</div>
+    </div>
+
+    <button id="analyzeBtn" onclick="analyze()" disabled>
+      Run Integrity Analysis
+    </button>
+  </section>
+
+  <section class="card">
+    <h2>Integrity Report</h2>
+
+    <div class="kv">
+      <span>Filename</span>
+      <span id="fname">—</span>
+    </div>
+
+    <div class="kv">
+      <span>SHA-256</span>
+      <span id="hash">—</span>
+    </div>
+
+    <div>
+      <div id="score" class="score">—</div>
+      <div id="scoreLabel" class="label"></div>
+    </div>
+
+    <div id="checks"></div>
+
+    <div id="heatmapBox" class="hidden">
+      <h3 style="margin-top:20px;font-size:15px">Detected Tamper Regions</h3>
+      <img id="heatmap">
+    </div>
+  </section>
+
+</main>
+
+<script>
+const fileInput = document.getElementById("fileInput");
+const fileInfo = document.getElementById("fileInfo");
+const uploadBox = document.getElementById("uploadBox");
+const analyzeBtn = document.getElementById("analyzeBtn");
+
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) {
+    const f = fileInput.files[0];
+    fileInfo.textContent = `${f.name} • ${(f.size / 1024).toFixed(1)} KB`;
+    uploadBox.classList.add("selected");
+    analyzeBtn.disabled = false;
+  } else {
+    fileInfo.textContent = "No file selected";
+    uploadBox.classList.remove("selected");
+    analyzeBtn.disabled = true;
+  }
+});
+
+async function analyze() {
+  const f = fileInput.files[0];
+  if (!f) return;
+
+  analyzeBtn.disabled = true;
+  analyzeBtn.textContent = "Analyzing…";
+
+  const fd = new FormData();
+  fd.append("file", f);
+
+  const res = await fetch("/analyze", { method: "POST", body: fd });
+  const data = await res.json();
+
+  document.getElementById("fname").textContent = data.filename;
+  document.getElementById("hash").textContent = data.hash;
+
+  const scoreEl = document.getElementById("score");
+  scoreEl.textContent = data.integrity_score + "%";
+  scoreEl.className =
+    "score " + (data.integrity_score >= 70 ? "ok" : "warn");
+
+  document.getElementById("scoreLabel").textContent =
+    data.integrity_score >= 70
+      ? "File shows strong integrity signals"
+      : "Integrity anomalies detected";
+
+  const checks = document.getElementById("checks");
+  checks.innerHTML = "";
+  data.checks.forEach(c => {
+    const row = document.createElement("div");
+    row.className = "check";
+    row.innerHTML =
+      `<span>${c.check}</span><span>${(c.score * 100).toFixed(2)}%</span>`;
+    checks.appendChild(row);
+  });
+
+  if (data.tamper_heatmap) {
+    document.getElementById("heatmap").src =
+      "data:image/png;base64," + data.tamper_heatmap;
+    document.getElementById("heatmapBox").classList.remove("hidden");
+  }
+
+  analyzeBtn.disabled = false;
+  analyzeBtn.textContent = "Run Integrity Analysis";
+}
+</script>
+
+</body>
+</html>
